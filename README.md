@@ -74,7 +74,7 @@ When a POST hits `/notify`:
 The hub talks to Jarvis through OpenClaw's standard chat API:
 
 ```
-POST http://127.0.0.1:18789/v1/chat/completions
+POST http://localhost:<OPENCLAW_PORT>/v1/chat/completions
 Authorization: Bearer <gateway-token>
 ```
 

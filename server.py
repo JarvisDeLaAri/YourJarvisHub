@@ -20,7 +20,7 @@ LOG_FILE = Path(__file__).parent / "hub.log"
 
 # OpenClaw API
 OPENCLAW_HOST = os.environ.get("OPENCLAW_HOST", "127.0.0.1")
-OPENCLAW_PORT = int(os.environ.get("OPENCLAW_PORT", "18789"))
+OPENCLAW_PORT = int(os.environ.get("OPENCLAW_PORT", "0"))
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
 ARIEL_PHONE = os.environ.get("ARIEL_PHONE", "")
 
@@ -116,7 +116,7 @@ def wake_jarvis(notif_id, source, title, message, priority):
 {message}
 
 ---
-INSTRUCTION: Forward this to Ariel on WhatsApp NOW using the message tool. Add your brief reaction/commentary if appropriate. Then mark done: POST http://127.0.0.1:10020/done/{notif_id}"""
+INSTRUCTION: Forward this to the user on WhatsApp NOW using the message tool. Add your brief reaction/commentary if appropriate. Then mark done: POST http://127.0.0.1:{PORT}/done/{notif_id}"""
         
         data = json.dumps({
             "model": "agent:main",
