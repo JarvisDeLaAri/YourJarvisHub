@@ -44,6 +44,14 @@ Example flow:
 
 ---
 
+## 📊 Flow Comparison: Hub vs Heartbeat/Cron
+
+Want to understand how the Hub's API path compares to OpenClaw's built-in Heartbeat/Cron path?
+
+👉 **[Open the interactive flow chart](flow-comparison.html)** — side-by-side visual comparison of both paths, same brain, different plumbing.
+
+---
+
 ## The Code Explained
 
 One file: **`server.py`** (~250 lines)
