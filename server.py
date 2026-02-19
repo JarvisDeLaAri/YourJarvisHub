@@ -9,8 +9,6 @@ import os
 import sqlite3
 import datetime
 import urllib.request
-import subprocess
-import re
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -25,9 +23,6 @@ OPENCLAW_HOST = os.environ.get("OPENCLAW_HOST", "127.0.0.1")
 OPENCLAW_PORT = int(os.environ.get("OPENCLAW_PORT", "0"))
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
 ARIEL_PHONE = os.environ.get("ARIEL_PHONE", "")
-SSH_ALERT_IGNORE_USERS = {
-    u.strip().lower() for u in os.environ.get("SSH_ALERT_IGNORE_USERS", "opusstudio").split(",") if u.strip()
-}
 
 def log(msg):
     timestamp = datetime.datetime.now().isoformat()
@@ -35,19 +30,6 @@ def log(msg):
     print(line)
     with open(LOG_FILE, 'a') as f:
         f.write(line + "\n")
-
-
-def should_ignore_notification(source, title, message):
-    """Drop noisy SSH login alerts for allowlisted service users."""
-    text = f"{title}\n{message}".lower()
-    if source.lower() != "ssh":
-        return False, None
-
-    for user in SSH_ALERT_IGNORE_USERS:
-        if re.search(rf"\buser\s*[:=]\s*{re.escape(user)}\b", text) or re.search(rf"\bfor\s+{re.escape(user)}\b", text):
-            return True, user
-
-    return False, None
 
 # ============ DATABASE ============
 
@@ -119,52 +101,38 @@ def db_mark_done(notif_id, response=None):
 # ============ OPENCLAW ============
 
 def wake_jarvis(notif_id, source, title, message, priority):
-    """Send raw hub notification first, then send Jarvis response."""
+    """Send notification to Jarvis via chat API - he will forward to WhatsApp"""
     try:
+        url = f"http://{OPENCLAW_HOST}:{OPENCLAW_PORT}/v1/chat/completions"
+        
+        # Format the notification
         priority_emoji = {"urgent": "🚨", "high": "❗", "normal": "📬", "low": "📝"}.get(priority, "📬")
-        target = ARIEL_PHONE or '+972542634114'
-
-        raw_text = f"""Hub Notification #{notif_id}
-
-{priority_emoji} **{source}**{f': {title}' if title else ''}
-
-{message}"""
-
-        # 1) Always send the raw notification first so Ariel sees original content.
-        raw_cmd = [
-            'sudo', '-n', '/usr/bin/openclaw', 'message', 'send',
-            '--channel', 'whatsapp',
-            '--target', target,
-            '--message', raw_text
-        ]
-        raw_res = subprocess.run(raw_cmd, capture_output=True, text=True, timeout=60)
-        if raw_res.returncode != 0:
-            log(f"ERROR sending raw hub notification #{notif_id}: rc={raw_res.returncode} stderr={raw_res.stderr[:200]}")
-            return False
-
-        # 2) Then ask Jarvis to respond briefly.
-        prompt = f"""You just received this hub alert:
+        
+        # Build prompt that instructs Jarvis to send to WhatsApp
+        prompt = f"""Hub Notification #{notif_id}
 
 {priority_emoji} **{source}**{f': {title}' if title else ''}
 
 {message}
 
-Reply briefly and clearly."""
-        agent_cmd = [
-            'sudo', '-n', '/usr/bin/openclaw', 'agent',
-            '--to', target,
-            '--channel', 'whatsapp',
-            '--message', prompt,
-            '--deliver',
-            '--timeout', '120',
-            '--json'
-        ]
-        # Run response generation in background so /notify never blocks on model latency.
-        subprocess.Popen(agent_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        log(f"Jarvis queued response #{notif_id} (raw sent immediately)")
-        return True
+---
+INSTRUCTION: Forward this to the user on WhatsApp NOW using the message tool. Add your brief reaction/commentary if appropriate. Then mark done: POST http://127.0.0.1:{PORT}/done/{notif_id}"""
+        
+        data = json.dumps({
+            "model": "agent:main",
+            "messages": [{"role": "user", "content": prompt}]
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(url, data=data, method='POST')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('Authorization', f'Bearer {OPENCLAW_TOKEN}')
+        
+        with urllib.request.urlopen(req, timeout=120) as response:
+            result = json.loads(response.read().decode())
+            log(f"Jarvis processed #{notif_id}: {result.get('choices', [{}])[0].get('message', {}).get('content', '')[:100]}...")
+            return True
     except Exception as e:
-        log(f"ERROR calling Jarvis for #{notif_id}: {e}")
+        log(f"ERROR calling Jarvis API: {e}")
         return False
 
 # ============ HTTP SERVER ============
@@ -223,16 +191,6 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "message required"}, 400)
                 return
             
-            ignored, ignored_user = should_ignore_notification(source, title, message)
-            if ignored:
-                log(f"Ignored SSH alert for user '{ignored_user}' from source '{source}'")
-                self.send_json({
-                    "ok": True,
-                    "ignored": True,
-                    "reason": f"ssh alert ignored for user {ignored_user}"
-                })
-                return
-
             # Insert to DB
             notif_id = db_insert(source, title, message, priority)
             log(f"New notification #{notif_id} from {source}: {title or message[:50]}")
