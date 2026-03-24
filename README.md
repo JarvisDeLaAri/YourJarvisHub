@@ -86,6 +86,14 @@ POST http://localhost:<OPENCLAW_PORT>/v1/chat/completions
 Authorization: Bearer <gateway-token>
 ```
 
+**Critical Fix (2026-03-22):** The hub injects notifications into the **existing main session** instead of creating new sessions:
+
+```
+x-openclaw-session-key: agent:main:main
+```
+
+Without this header, OpenClaw creates a NEW session per request (like `agent:main:openai:UUID`), leading to session spam. By targeting the existing session, notifications flow directly into Jarvis's active conversation.
+
 The notification is formatted with:
 - Priority emoji (🚨 urgent, ❗ high, 📬 normal, 📝 low)
 - Source and title
